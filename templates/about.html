@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}关于 - 化工资讯爬虫{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <!-- 关于卡片 -->
+        <div class="card mb-4">
+            <div class="card-body text-center p-5">
+                <div class="mb-4">
+                    <i class="bi bi-robot" style="font-size: 4rem; color: var(--secondary-color);"></i>
+                </div>
+                <h1 class="h3 mb-3">化工行业信息爬虫工具</h1>
+                <p class="text-muted mb-4">ChemInfoBot v1.0.0</p>
+                
+                <p class="lead">
+                    自动化采集化工行业最新资讯，智能分类整理，定时推送至您的邮箱
+                </p>
+                
+                <div class="row mt-4">
+                    <div class="col-md-4">
+                        <div class="p-3">
+                            <i class="bi bi-lightning-charge fs-1 text-primary"></i>
+                            <h6 class="mt-2">自动抓取</h6>
+                            <p class="text-muted small">每2小时自动从多个数据源抓取最新信息</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3">
+                            <i class="bi bi-funnel fs-1 text-success"></i>
+                            <h6 class="mt-2">智能分类</h6>
+                            <p class="text-muted small">自动识别行情价格、行业动态、市场分析</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="p-3">
+                            <i class="bi bi-envelope-check fs-1 text-warning"></i>
+                            <h6 class="mt-2">定时推送</h6>
+                            <p class="text-muted small">每天早上8:30准时推送至指定邮箱</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 功能特性 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-star"></i> 功能特性
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-check-circle-fill text-success"></i> 多数据源支持</h6>
+                        <ul class="text-muted small">
+                            <li>中国化工网</li>
+                            <li>隆众资讯</li>
+                            <li>中国铁合金在线</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-check-circle-fill text-success"></i> 智能分类系统</h6>
+                        <ul class="text-muted small">
+                            <li>行情价格 - 产品价格走势</li>
+                            <li>行业动态 - 企业产能变化</li>
+                            <li>市场分析 - 供需报告</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-check-circle-fill text-success"></i> 关键词提取</h6>
+                        <ul class="text-muted small">
+                            <li>甲醇、乙醇、丙烯等化工产品</li>
+                            <li>自动识别相关化工原料</li>
+                            <li>便于快速筛选关注内容</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="bi bi-check-circle-fill text-success"></i> Web管理界面</h6>
+                        <ul class="text-muted small">
+                            <li>实时查看抓取状态</li>
+                            <li>历史数据检索</li>
+                            <li>手动触发任务</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 技术栈 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-code-square"></i> 技术栈
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>后端技术</h6>
+                        <p class="text-muted small">
+                            <span class="badge bg-primary">Python 3.9+</span>
+                            <span class="badge bg-primary">Flask</span>
+                            <span class="badge bg-primary">SQLite</span>
+                            <span class="badge bg-primary">APScheduler</span>
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>前端技术</h6>
+                        <p class="text-muted small">
+                            <span class="badge bg-success">Bootstrap 5</span>
+                            <span class="badge bg-success">Jinja2</span>
+                            <span class="badge bg-success">Font Awesome</span>
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>爬虫技术</h6>
+                        <p class="text-muted small">
+                            <span class="badge bg-warning">requests</span>
+                            <span class="badge bg-warning">BeautifulSoup4</span>
+                            <span class="badge bg-warning">lxml</span>
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>邮件服务</h6>
+                        <p class="text-muted small">
+                            <span class="badge bg-info">SMTP</span>
+                            <span class="badge bg-info">163邮箱</span>
+                            <span class="badge bg-info">SSL加密</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 使用说明 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-book"></i> 快速开始
+            </div>
+            <div class="card-body">
+                <ol class="list-group list-group-flush list-group-numbered">
+                    <li class="list-group-item">
+                        <strong>安装依赖</strong>
+                        <p class="text-muted small mb-0">
+                            <code>pip install -r requirements.txt</code>
+                        </p>
+                    </li>
+                    <li class="list-group-item">
+                        <strong>配置邮箱</strong>
+                        <p class="text-muted small mb-0">
+                            编辑 <code>config.py</code>，设置您的163邮箱和SMTP授权码
+                        </p>
+                    </li>
+                    <li class="list-group-item">
+                        <strong>启动Web界面</strong>
+                        <p class="text-muted small mb-0">
+                            <code>python web_app.py</code>，访问 http://localhost:5000
+                        </p>
+                    </li>
+                    <li class="list-group-item">
+                        <strong>启动定时调度</strong>
+                        <p class="text-muted small mb-0">
+                            <code>python scheduler.py</code>，选择后台模式持续运行
+                        </p>
+                    </li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- 系统信息 -->
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> 系统信息
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless">
+                    <tbody>
+                        <tr>
+                            <td style="width: 150px;">版本号</td>
+                            <td><code>1.0.0</code></td>
+                        </tr>
+                        <tr>
+                            <td>更新日期</td>
+                            <td>2025-05-30</td>
+                        </tr>
+                        <tr>
+                            <td>推送邮箱</td>
+                            <td><code>cz9721@163.com</code></td>
+                        </tr>
+                        <tr>
+                            <td>推送时间</td>
+                            <td>每天 08:30</td>
+                        </tr>
+                        <tr>
+                            <td>支持系统</td>
+                            <td>Windows / macOS / Linux</td>
+                        </tr>
+                        <tr>
+                            <td>Python版本</td>
+                            <td>3.9+</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

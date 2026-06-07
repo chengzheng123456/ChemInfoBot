@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}新闻列表 - 化工资讯爬虫{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="mb-3"><i class="bi bi-newspaper"></i> 新闻资讯</h2>
+    </div>
+</div>
+
+<!-- 筛选栏 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" action="/news" class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">关键词搜索</label>
+                <input type="text" class="form-control" name="keyword" 
+                       value="{{ keyword }}" placeholder="输入标题或内容关键词...">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">分类</label>
+                <select class="form-select" name="category">
+                    <option value="">全部分类</option>
+                    <option value="行情价格" {% if category == '行情价格' %}selected{% endif %}>行情价格</option>
+                    <option value="行业动态" {% if category == '行业动态' %}selected{% endif %}>行业动态</option>
+                    <option value="市场分析" {% if category == '市场分析' %}selected{% endif %}>市场分析</option>
+                    <option value="政策法规" {% if category == '政策法规' %}selected{% endif %}>政策法规</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">时间范围</label>
+                <select class="form-select" name="days">
+                    <option value="1" {% if days == 1 %}selected{% endif %}>最近1天</option>
+                    <option value="3" {% if days == 3 %}selected{% endif %}>最近3天</option>
+                    <option value="7" {% if days == 7 %}selected{% endif %}>最近7天</option>
+                    <option value="30" {% if days == 30 %}selected{% endif %}>最近30天</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-search"></i> 搜索
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 新闻列表 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>
+            <i class="bi bi-list-ul"></i> 
+            共 {{ news_items|length }} 条资讯
+            {% if keyword %}
+                <span class="text-muted">(关键词: {{ keyword }})</span>
+            {% endif %}
+        </span>
+        <div>
+            <button class="btn btn-sm btn-outline-success" onclick="runSpider()">
+                <i class="bi bi-arrow-clockwise"></i> 更新数据
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        {% if news_items %}
+            {% for item in news_items %}
+            <div class="news-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <h5 class="news-title mb-0">
+                                <a href="/news/{{ item.id }}">{{ item.title }}</a>
+                            </h5>
+                            <span class="category-badge badge-{{ item.category }}">{{ item.category }}</span>
+                            {% if not item.is_sent %}
+                                <span class="badge bg-warning text-dark">未推送</span>
+                            {% endif %}
+                        </div>
+                        <div class="news-meta mb-2">
+                            <i class="bi bi-geo-alt"></i> {{ item.source }}
+                            <i class="bi bi-clock ms-2"></i> {{ item.publish_date.strftime('%Y-%m-%d %H:%M') }}
+                            <i class="bi bi-link-45deg ms-2"></i> 
+                            <a href="{{ item.source_url }}" target="_blank">原文链接</a>
+                        </div>
+                        <p class="text-muted small mb-2">{{ item.summary or item.content[:200] }}...</p>
+                        {% if item.keywords %}
+                        <div>
+                            {% for kw in item.keywords.split(',')[:5] %}
+                            <span class="keyword-tag">{{ kw }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-inbox" style="font-size: 4rem; color: #dee2e6;"></i>
+                <p class="text-muted mt-3 mb-2">未找到匹配的新闻</p>
+                <p class="text-muted small">尝试更换关键词或调整筛选条件</p>
+                <a href="/news" class="btn btn-outline-primary">
+                    <i class="bi bi-arrow-counterclockwise"></i> 重置筛选
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 分页 (简化版) -->
+{% if news_items %}
+<div class="d-flex justify-content-center mt-4">
+    <nav>
+        <ul class="pagination">
+            <li class="page-item disabled">
+                <span class="page-link">上一页</span>
+            </li>
+            <li class="page-item active">
+                <span class="page-link">1</span>
+            </li>
+            <li class="page-item disabled">
+                <span class="page-link">下一页</span>
+            </li>
+        </ul>
+    </nav>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function runSpider() {
+    const result = await callAPI('/api/run_spider');
+    if (result) {
+        setTimeout(() => location.reload(), 1500);
+    }
+}
+</script>
+{% endblock %}

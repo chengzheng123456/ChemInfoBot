@@ -1,0 +1,132 @@
+"""
+化工行业信息爬虫工具 - 配置文件示例
+复制为 config.py 并填入你的真实配置
+"""
+
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent
+
+DATABASE_PATH = BASE_DIR / "data" / "chem_info.db"
+
+EMAIL_CONFIG = {
+    "smtp_server": "smtp.163.com",
+    "smtp_port": 465,
+    "sender_email": "your_email@163.com",
+    "sender_password": "YOUR_SMTP_AUTH_CODE",
+    "recipient_email": "your_email@163.com",
+    "use_ssl": True,
+}
+
+SPIDER_CONFIG = {
+    "request_timeout": 30,
+    "retry_times": 3,
+    "retry_delay": 2,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "delay_between_requests": 1,
+}
+
+SCHEDULER_CONFIG = {
+    "daily_push_time": "08:30",
+    "timezone": "Asia/Shanghai",
+}
+
+FEISHU_CONFIG = {
+    "enabled": False,
+    "webhook_url": "YOUR_FEISHU_WEBHOOK_URL",
+    "secret": "",
+}
+
+WECHAT_CONFIG = {
+    "enabled": False,
+    "push_type": "pushplus",
+    "pushplus_token": "YOUR_PUSHPLUS_TOKEN",
+    "serverchan_key": "YOUR_SERVERCHAN_KEY",
+}
+
+DATA_SOURCES = {
+    "chemnet": {
+        "name": "中国化工网",
+        "base_url": "https://www.chemnet.com.cn",
+        "enabled": True,
+        "categories": {
+            "news": "https://www.chemnet.com.cn/news/",
+            "price": "https://www.chemnet.com.cn/price/",
+        }
+    },
+    "oilchem": {
+        "name": "隆众资讯",
+        "base_url": "https://www.oilchem.net",
+        "enabled": True,
+        "categories": {
+            "news": "https://www.oilchem.net/news/",
+            "price": "https://www.oilchem.net/price/",
+        }
+    },
+    "cnfeol": {
+        "name": "中国铁合金在线",
+        "base_url": "https://www.cnfeol.com",
+        "enabled": True,
+        "categories": {
+            "news": "https://www.cnfeol.com/news/",
+            "price": "https://www.cnfeol.com/price/",
+        }
+    },
+}
+
+CATEGORY_KEYWORDS = {
+    "行情价格": ["价格", "行情", "报价", "走势", "涨跌", "上调", "下调", "成本"],
+    "行业动态": ["投产", "扩建", "检修", "产能", "产量", "开工率", "新项目"],
+    "市场分析": ["分析", "预测", "展望", "供需", "库存", "进出口", "贸易"],
+    "政策法规": ["政策", "法规", "标准", "环保", "安全", "监管"],
+}
+
+CHEM_PRODUCTS = [
+    "甲醇", "乙醇", "丙烯", "乙烯", "苯", "甲苯", "二甲苯",
+    "PTA", "PVC", "PE", "PP", "PS", "ABS", "环氧树脂", "聚酯",
+    "尿素", "纯碱", "烧碱", "硫酸", "硝酸", "盐酸",
+    "MDI", "TDI", "聚醚", "多元醇", "有机硅",
+]
+
+WEB_CONFIG = {
+    "host": "0.0.0.0",
+    "port": 5000,
+    "debug": False,
+    "secret_key": os.urandom(24).hex(),
+}
+
+LOG_CONFIG = {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file": BASE_DIR / "logs" / "app.log",
+    "max_bytes": 10485760,
+    "backup_count": 5,
+}
+
+
+def ensure_directories():
+    dirs = [
+        BASE_DIR / "data",
+        BASE_DIR / "logs",
+        BASE_DIR / "templates",
+        BASE_DIR / "static",
+        BASE_DIR / "static" / "css",
+        BASE_DIR / "static" / "js",
+    ]
+    for d in dirs:
+        d.mkdir(parents=True, exist_ok=True)
+
+
+ensure_directories()
+
+
+def validate_config():
+    issues = []
+    if EMAIL_CONFIG["sender_email"] == "your_email@163.com":
+        issues.append("EMAIL: 发件人邮箱未配置")
+    if EMAIL_CONFIG["sender_password"] == "YOUR_SMTP_AUTH_CODE":
+        issues.append("EMAIL: SMTP授权码未配置")
+    if not issues:
+        issues.append("配置检查通过")
+    return issues

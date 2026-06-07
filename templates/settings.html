@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}设置 - 化工资讯爬虫{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="mb-3"><i class="bi bi-gear"></i> 系统设置</h2>
+        <p class="text-muted">配置邮件发送、爬虫参数和定时任务</p>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 邮件配置 -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-envelope-gear"></i> 邮件配置
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> 
+                    <strong>提示:</strong> 需要在 <code>config.py</code> 文件中修改以下配置后重启服务生效。
+                </div>
+                
+                <table class="table table-borderless">
+                    <tbody>
+                        <tr>
+                            <td class="text-muted" style="width: 120px;">SMTP服务器</td>
+                            <td>
+                                <code>{{ email_config.smtp_server }}:{{ email_config.smtp_port }}</code>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">发件邮箱</td>
+                            <td>
+                                <code>{{ email_config.sender_email }}</code>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">收件邮箱</td>
+                            <td>
+                                <code>{{ email_config.recipient_email }}</code>
+                                <span class="badge bg-success ms-2">当前配置</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">SSL加密</td>
+                            <td>
+                                {% if email_config.use_ssl %}
+                                    <span class="text-success"><i class="bi bi-shield-check"></i> 已启用</span>
+                                {% else %}
+                                    <span class="text-warning"><i class="bi bi-shield-x"></i> 未启用</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-info" onclick="testEmail()">
+                        <i class="bi bi-envelope-check"></i> 测试邮件配置
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 定时任务配置 -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-clock-history"></i> 定时任务配置
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless">
+                    <tbody>
+                        <tr>
+                            <td class="text-muted" style="width: 120px;">每日推送时间</td>
+                            <td>
+                                <code>{{ scheduler_config.daily_push_time }}</code>
+                                <span class="badge bg-primary ms-2">已配置</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">时区</td>
+                            <td>
+                                <code>{{ scheduler_config.timezone }}</code>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">爬虫频率</td>
+                            <td>
+                                <span class="badge bg-info">每 2 小时</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">数据清理</td>
+                            <td>
+                                <span class="badge bg-secondary">每周日凌晨 2:00</span>
+                                <small class="text-muted d-block">自动删除30天前数据</small>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>注意:</strong> 修改定时任务配置需要重启调度器服务。
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 爬虫配置 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-spider"></i> 爬虫参数配置
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 col-sm-6 mb-3">
+                        <div class="card border-0 bg-light">
+                            <div class="card-body text-center">
+                                <h5 class="card-title">{{ spider_config.request_timeout }}s</h5>
+                                <p class="card-text text-muted small">请求超时时间</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6 mb-3">
+                        <div class="card border-0 bg-light">
+                            <div class="card-body text-center">
+                                <h5 class="card-title">{{ spider_config.retry_times }}</h5>
+                                <p class="card-text text-muted small">失败重试次数</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6 mb-3">
+                        <div class="card border-0 bg-light">
+                            <div class="card-body text-center">
+                                <h5 class="card-title">{{ spider_config.retry_delay }}s</h5>
+                                <p class="card-text text-muted small">重试间隔</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6 mb-3">
+                        <div class="card border-0 bg-light">
+                            <div class="card-body text-center">
+                                <h5 class="card-title">{{ spider_config.delay_between_requests }}s</h5>
+                                <p class="card-text text-muted small">请求间隔</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="alert alert-info mt-3">
+                    <i class="bi bi-info-circle"></i> 
+                    <strong>说明:</strong> 爬虫参数配置位于 <code>config.py</code> 文件中。建议保持默认配置，
+                    过快的请求频率可能导致被封禁。
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据源配置 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-globe"></i> 数据源配置
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for source_id, source in config.DATA_SOURCES.items() %}
+                    <div class="col-md-4 mb-3">
+                        <div class="card h-100 {% if source.enabled %}border-success{% else %}border-secondary{% endif %}">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <h6 class="card-title mb-0">{{ source.name }}</h6>
+                                    {% if source.enabled %}
+                                    <span class="badge bg-success">已启用</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">已禁用</span>
+                                    {% endif %}
+                                </div>
+                                <p class="card-text text-muted small mt-2">
+                                    <i class="bi bi-link-45deg"></i>
+                                    <a href="{{ source.base_url }}" target="_blank">{{ source.base_url }}</a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据管理 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-database-gear"></i> 数据管理
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="/news" class="btn btn-outline-primary">
+                        <i class="bi bi-list-ul"></i> 查看所有数据
+                    </a>
+                    <button class="btn btn-success" onclick="runSpider()">
+                        <i class="bi bi-play-fill"></i> 立即抓取
+                    </button>
+                    <button class="btn btn-warning" onclick="sendEmail()">
+                        <i class="bi bi-envelope-fill"></i> 立即发送邮件
+                    </button>
+                </div>
+                
+                <hr>
+                
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>警告:</strong> 数据库文件位于 <code>data/chem_info.db</code>。
+                    建议定期备份，系统会自动清理30天前的旧数据。
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function testEmail() {
+    const btn = document.querySelector('button[onclick="testEmail()"]');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 测试中...';
+    
+    await callAPI('/api/test_email');
+    
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-envelope-check"></i> 测试邮件配置';
+}
+
+async function runSpider() {
+    const result = await callAPI('/api/run_spider');
+    if (result) {
+        showNotification('爬虫任务已完成', 'success');
+    }
+}
+
+async function sendEmail() {
+    const result = await callAPI('/api/send_email');
+    if (result) {
+        showNotification('邮件发送任务已完成', 'success');
+    }
+}
+</script>
+{% endblock %}

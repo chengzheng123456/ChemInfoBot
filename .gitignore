@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+data/
+logs/
+config.py
+.env
+_*.txt
+_*.py
+market_report_*.html
+*.db
