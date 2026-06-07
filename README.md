@@ -67,3 +67,10 @@ python scheduler.py
 **作者**: ChemInfoBot  
 **版本**: 1.0.0  
 **更新日期**: 2025-05-30
+
+
+## 环境配置
+
+1. 复制 config.py.example 为 config.py
+2. 填写你的邮箱 SMTP 授权码、飞书 Webhook、PushPlus Token
+3. 运行 pip install -r requirements.txt
