@@ -1,9 +1,16 @@
 # Stock market spider for A-share data
-import re,time,json,logging
+# Phase-1 refactor (2026-07-07):
+#   * Removed ALL demo/fake-data fallbacks. On failure every fetcher returns
+#     None / [] -- never fabricated numbers. (Fixes the old "冒名推送假数据" bug.)
+#   * Added multi-source degradation: eastmoney (primary) -> tencent (fallback)
+#     for index quotes, with a circuit breaker to avoid hammering a dead source.
+#   * Added data-provenance metadata on the aggregated analysis
+#     (source / fetched_at / data_complete) for traceability & storage.
+import re, time, json, logging
 from datetime import datetime, timedelta
 import requests
 import config
-logger=logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 INDEX_CODES = {
     "sh000001": ("上证指数", "SH"),
@@ -16,21 +23,40 @@ INDEX_CODES = {
     "sz399673": ("创业板50", "SZ"),
 }
 
+PRIMARY_SOURCE = "eastmoney"
+FALLBACK_SOURCE = "tencent"
+
+
+class CircuitBreaker:
+    """Simple circuit breaker: after `fail_threshold` consecutive failures it
+    opens for `cooldown` seconds so we stop hammering a dead upstream."""
+
+    def __init__(self, fail_threshold=3, cooldown=300):
+        self.fail_threshold = fail_threshold
+        self.cooldown = cooldown
+        self.fail_count = 0
+        self.opened_at = 0.0
+
+    def allow(self):
+        if self.fail_count >= self.fail_threshold:
+            if time.time() - self.opened_at < self.cooldown:
+                return False
+            self.fail_count = 0  # half-open: give it another try
+        return True
+
+    def record_success(self):
+        self.fail_count = 0
+
+    def record_failure(self):
+        self.fail_count += 1
+        if self.fail_count >= self.fail_threshold:
+            self.opened_at = time.time()
+            logger.warning("Circuit breaker OPENED for %ss", self.cooldown)
+
 
 class AStockSpider:
     name = "A股板块爬虫"
     base_url = "https://data.eastmoney.com"
-
-    def _fetch(self, url, **kw):
-        for i in range(3):
-            try:
-                time.sleep(1)
-                r = self.session.get(url, timeout=30, **kw)
-                r.raise_for_status()
-                r.encoding = r.apparent_encoding or "utf-8"
-                return r.text
-            except Exception as e:
-                if i == 2: return None
 
     def __init__(self):
         self.session = requests.Session()
@@ -39,17 +65,45 @@ class AStockSpider:
             "Accept": "application/json",
             "Referer": "https://data.eastmoney.com/",
         })
+        self.breaker_em = CircuitBreaker()
+        self.breaker_tx = CircuitBreaker()
 
+    def _fetch(self, url, breaker=None, **kw):
+        if breaker is not None and not breaker.allow():
+            logger.warning("Circuit breaker blocked request to %s", url)
+            return None
+        for i in range(3):
+            try:
+                time.sleep(1)
+                r = self.session.get(url, timeout=30, **kw)
+                r.raise_for_status()
+                r.encoding = r.apparent_encoding or "utf-8"
+                if breaker is not None:
+                    breaker.record_success()
+                return r.text
+            except Exception as e:
+                logger.warning("Fetch failed (%s): %s", url, e)
+                if i == 2:
+                    if breaker is not None:
+                        breaker.record_failure()
+                    return None
+
+    # ------------------------------------------------------------------
+    # Index overview: eastmoney primary, tencent fallback
+    # ------------------------------------------------------------------
     def fetch_market_overview(self):
-        """获取主要指数行情"""
+        """获取主要指数行情；东方财富失败则降级腾讯，再失败返回 None。"""
         codes = ",".join(INDEX_CODES.keys())
         p = {
             "fltt": 2, "invt": 2,
             "fields": "f2,f3,f4,f12,f14,f15,f16,f17,f18,f20",
             "secids": codes,
         }
-        h = self._fetch("https://push2.eastmoney.com/api/qt/ulist.np/get", params=p)
-        if not h: return self._demo_market()
+        h = self._fetch("https://push2.eastmoney.com/api/qt/ulist.np/get",
+                        params=p, breaker=self.breaker_em)
+        if not h:
+            logger.info("Eastmoney indices failed, degrading to tencent")
+            return self._fetch_tencent_indices()
         try:
             data = json.loads(h).get("data", {}).get("diff", [])
             indices = []
@@ -66,19 +120,59 @@ class AStockSpider:
                     "volume": d.get("f20", 0),
                 })
             return indices[:8]
-        except:
-            return self._demo_market()
+        except Exception as e:
+            logger.warning("Parse indices failed: %s", e)
+            return None
 
-    def _demo_market(self):
-        return [
-            {"name": "上证指数", "code": "000001", "price": 3350.62, "chg_pct": 0.85, "chg_val": 28.27, "high": 3360.12, "low": 3338.50, "open": 3345.18},
-            {"name": "深证成指", "code": "399001", "price": 10872.31, "chg_pct": 1.21, "chg_val": 130.07, "high": 10895.60, "low": 10785.42, "open": 10800.35},
-            {"name": "创业板指", "code": "399006", "price": 2185.93, "chg_pct": 1.52, "chg_val": 32.76, "high": 2190.45, "low": 2164.72, "open": 2170.10},
-            {"name": "科创50", "code": "000688", "price": 1012.45, "chg_pct": 2.10, "chg_val": 20.83, "high": 1015.30, "low": 998.25, "open": 1000.12},
-        ]
+    def _fetch_tencent_indices(self):
+        secids = ",".join(INDEX_CODES.keys())  # sh000001,sz399001,...
+        url = "https://qt.gtimg.cn/q=" + secids
+        h = self._fetch(url, breaker=self.breaker_tx)
+        if not h:
+            return None
+        try:
+            out = []
+            for line in h.split(";"):
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+                val = val.strip().strip('"')
+                if not val:
+                    continue
+                parts = val.split("~")
+                if len(parts) < 10:
+                    continue
+                try:
+                    price = float(parts[3])
+                    chg_pct = float(parts[5])
+                    chg_val = float(parts[4])
+                except (ValueError, IndexError):
+                    continue
+                # sanity check: reject obviously garbage values
+                if price <= 0 or not (-15 <= chg_pct <= 15):
+                    continue
+                out.append({
+                    "name": parts[1],
+                    "code": parts[2],
+                    "price": price,
+                    "chg_pct": chg_pct,
+                    "chg_val": chg_val,
+                    "high": float(parts[8]) if parts[8] else 0,
+                    "low": float(parts[9]) if parts[9] else 0,
+                    "open": float(parts[6]) if parts[6] else 0,
+                    "volume": 0,
+                })
+            return out if out else None
+        except Exception as e:
+            logger.warning("Tencent indices parse failed: %s", e)
+            return None
 
+    # ------------------------------------------------------------------
+    # Market breadth (eastmoney only; failure -> None, never fake)
+    # ------------------------------------------------------------------
     def fetch_market_breadth(self):
-        """获取市场涨跌统计"""
+        """获取市场涨跌统计；失败返回 None。"""
         p = {
             "pn": 1, "pz": 10000, "po": 1, "np": 1,
             "ut": "bd1d9ddb04089700cf9c27f6f7426281",
@@ -86,10 +180,13 @@ class AStockSpider:
             "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
             "fields": "f2,f3,f12,f14",
         }
-        h = self._fetch(self.base_url + "/api/qt/clist/get", params=p)
-        if not h: return self._demo_breadth()
+        h = self._fetch(self.base_url + "/api/qt/clist/get", params=p,
+                        breaker=self.breaker_em)
+        if not h:
+            return None
         items = self._parse_html(h)
-        if not items: return self._demo_breadth()
+        if not items:
+            return None
 
         up_count = sum(1 for i in items if i.get("f3", 0) > 0)
         down_count = sum(1 for i in items if i.get("f3", 0) < 0)
@@ -99,8 +196,8 @@ class AStockSpider:
         down_limit = sum(1 for i in items if i.get("f3", 0) <= -9.9)
 
         sorted_items = sorted(items, key=lambda x: x.get("f3", 0), reverse=True)
-        top_gainers = [{"name": i.get("f14",""), "code": i.get("f12",""), "chg": i.get("f3",0)} for i in sorted_items[:5]]
-        top_losers = [{"name": i.get("f14",""), "code": i.get("f12",""), "chg": i.get("f3",0)} for i in sorted_items[-5:]]
+        top_gainers = [{"name": i.get("f14", ""), "code": i.get("f12", ""), "chg": i.get("f3", 0)} for i in sorted_items[:5]]
+        top_losers = [{"name": i.get("f14", ""), "code": i.get("f12", ""), "chg": i.get("f3", 0)} for i in sorted_items[-5:]]
 
         return {
             "total": len(items),
@@ -113,22 +210,11 @@ class AStockSpider:
             "top_losers": top_losers,
         }
 
-    def _demo_breadth(self):
-        return {
-            "total": 5380, "up": 3286, "down": 1752, "flat": 342,
-            "up_limit": 78, "down_limit": 12,
-            "top_gainers": [
-                {"name":"瑞芯微","code":"603893","chg":10.02},
-                {"name":"中芯国际","code":"688981","chg":9.98},
-                {"name":"北方华创","code":"002371","chg":9.85},
-            ],
-            "top_losers": [
-                {"name":"*ST蓝光","code":"600466","chg":-5.02},
-            ],
-        }
-
+    # ------------------------------------------------------------------
+    # North-bound flow (eastmoney only; failure -> None)
+    # ------------------------------------------------------------------
     def fetch_north_flow(self):
-        """获取北向资金流向"""
+        """获取北向资金流向；失败返回 None。"""
         try:
             url = "https://push2.eastmoney.com/api/qt/kamt.kline/get"
             p = {
@@ -139,9 +225,9 @@ class AStockSpider:
                 "secid": "90.001133",
                 "ut": "7eea3edcaed734bea9cbfce24459ed5f",
             }
-            h = self._fetch(url, params=p)
+            h = self._fetch(url, params=p, breaker=self.breaker_em)
             if not h:
-                return self._demo_north_flow()
+                return None
             data = json.loads(h)
             if data.get("data") and data["data"].get("klines"):
                 last = data["data"]["klines"][-1].split(",")
@@ -149,29 +235,36 @@ class AStockSpider:
                     "net_inflow": round(float(last[2]) / 10000, 2),
                     "balance": round(float(last[3]) / 10000, 2),
                 }
-        except:
-            pass
-        return self._demo_north_flow()
-
-    def _demo_north_flow(self):
-        return {"net_inflow": 45.68, "balance": 22135.42}
+        except Exception as e:
+            logger.warning("North flow fetch/parse failed: %s", e)
+        return None
 
     def fetch_previous_trading_day_analysis(self):
-        """获取前一个交易日完整市场分析"""
+        """获取前一个交易日完整市场分析（聚合各模块 + 溯源元数据）。"""
         logger.info("Fetching previous trading day A-share market analysis")
         indices = self.fetch_market_overview()
         breadth = self.fetch_market_breadth()
         north = self.fetch_north_flow()
         sectors = self.fetch_sector_rankings(5)
         news = MarketNewsSpider().fetch_news()
-        # Fetch technical indicators
         try:
             indicators = self.fetch_index_indicators()
         except Exception as e:
             logger.warning("Indicator fetch failed: %s" % e)
             indicators = []
+
+        data_complete = all([
+            indices is not None,
+            breadth is not None,
+            north is not None,
+            bool(sectors),
+        ])
+
         analysis = {
             "date": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+            "source": PRIMARY_SOURCE,
+            "fetched_at": datetime.now().isoformat(timespec="seconds"),
+            "data_complete": data_complete,
             "indices": indices,
             "breadth": breadth,
             "north_flow": north,
@@ -180,6 +273,7 @@ class AStockSpider:
             "news": news[:10] if news else [],
         }
         return analysis
+
     def fetch_sector_rankings(self, top_n=3):
         p = {
             "cb": "", "pn": 1, "pz": top_n + 3, "po": 1, "np": 1,
@@ -188,10 +282,13 @@ class AStockSpider:
             "fs": "m:90+t:2",
             "fields": "f2,f3,f4,f12,f14,f15,f16,f17,f18",
         }
-        h = self._fetch(self.base_url + "/api/qt/clist/get", params=p)
-        if not h: return self._demo()
+        h = self._fetch(self.base_url + "/api/qt/clist/get", params=p,
+                        breaker=self.breaker_em)
+        if not h:
+            return None
         items = self._parse_html(h)
-        if not items: return self._demo()
+        if not items:
+            return None
 
         r = []
         for i, item in enumerate(items[:top_n]):
@@ -213,7 +310,8 @@ class AStockSpider:
             "fs": "m:90+t:3+f:" + code,
             "fields": "f2,f3,f4,f12,f14",
         }
-        h = self._fetch(self.base_url + "/api/qt/clist/get", params=p)
+        h = self._fetch(self.base_url + "/api/qt/clist/get", params=p,
+                        breaker=self.breaker_em)
         items = self._parse_html(h)
         return [{
             "name": i.get("f14", ""),
@@ -231,13 +329,6 @@ class AStockSpider:
             return json.loads(t).get("data", {}).get("diff", [])
         except:
             return []
-
-    def _demo(self):
-        return [
-            {"rank": 1, "sector": "半导体", "chg": 3.85, "leaders": [{"name": "中芯国际", "code": "688981", "chg": 5.21}, {"name": "北方华创", "code": "002371", "chg": 4.58}]},
-            {"rank": 2, "sector": "证券", "chg": 2.63, "leaders": [{"name": "中信证券", "code": "600030", "chg": 3.45}, {"name": "东方财富", "code": "300059", "chg": 3.12}]},
-            {"rank": 3, "sector": "新能源汽车", "chg": 2.18, "leaders": [{"name": "宁德时代", "code": "300750", "chg": 3.87}, {"name": "比亚迪", "code": "002594", "chg": 2.56}]},
-        ]
 
     def _ema(self, data, period):
         k = 2.0 / (period + 1)
@@ -299,7 +390,7 @@ class AStockSpider:
             "end": "20500101",
             "lmt": str(days),
         }
-        h = self._fetch(url, params=p)
+        h = self._fetch(url, params=p, breaker=self.breaker_em)
         if not h:
             return None
         try:
@@ -350,7 +441,6 @@ class AStockSpider:
         return results
 
 
-
 class MarketNewsSpider:
     name = "市场要闻 - A股影响"
 
@@ -363,11 +453,15 @@ class MarketNewsSpider:
                 r.encoding = r.apparent_encoding or "utf-8"
                 return r.text
             except:
-                if i == 2: return None
+                if i == 2:
+                    return None
 
     def fetch_news(self):
+        """获取市场要闻；失败返回空列表（不编造新闻）。"""
         h = self._fetch("https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2516&num=15")
-        if not h: return self._demo_news()
+        if not h:
+            logger.warning("Sina news fetch failed, returning empty list")
+            return []
         try:
             d = json.loads(h)
             items = []
@@ -380,9 +474,10 @@ class MarketNewsSpider:
                     "time": i.get("ctime", ""),
                     "impact": self._classify(i.get("title", "")),
                 })
-            return items[:30] if items else self._demo_news()
-        except:
-            return self._demo_news()
+            return items[:30] if items else []
+        except Exception as e:
+            logger.warning("News parse failed: %s", e)
+            return []
 
     def _classify(self, title):
         pos = ["rise", "break", "bullish", "growth", "stimulus", "rally", "support", "inflow", "tax", "buyback", "涨", "利好", "突破", "刺激", "增长", "反弹", "流入", "支持", "减税", "回购"]
@@ -391,10 +486,3 @@ class MarketNewsSpider:
         p = sum(1 for k in pos if k in t)
         n = sum(1 for k in neg if k in t)
         return "利好" if p > n else ("利空" if n > p else "中性")
-
-    def _demo_news(self):
-        return [
-        {"title": "A股三大指数集体收涨", "source": "模拟数据", "url": "#", "impact": "利好"},
-        {"title": "国常会延续新能源车税收优惠", "source": "模拟数据", "url": "#", "impact": "利好"},
-        {"title": "美联储官员暗示加息可能", "source": "模拟数据", "url": "#", "impact": "利空"},
-        ]

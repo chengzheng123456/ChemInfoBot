@@ -110,6 +110,14 @@ def send_enhanced():
         except:
             pass
 
+    # Persist A股 snapshot for traceability (phase-1)
+    if analysis:
+        try:
+            snap_id = db.save_market_snapshot(analysis)
+            logger.info("Market snapshot saved, id=%s", snap_id)
+        except Exception as e:
+            logger.warning("Snapshot save failed: %s" % e)
+
     # Push to Feishu and WeChat
     if analysis:
         try:

@@ -133,7 +133,25 @@ class ChemDatabase:
                     error_message TEXT
                 )
             """)
-            
+
+            # A股行情快照（阶段一新增，带溯源字段）
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS stock_market_snapshot (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trade_date TEXT,
+                    source TEXT,
+                    fetched_at TIMESTAMP,
+                    data_complete BOOLEAN DEFAULT 1,
+                    indices TEXT,
+                    breadth TEXT,
+                    north_flow TEXT,
+                    sectors TEXT,
+                    indicators TEXT,
+                    news TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             conn.commit()
     
     def save_news(self, item: ChemNewsItem) -> int:
@@ -396,6 +414,39 @@ class ChemDatabase:
             is_sent=bool(row['is_sent']),
         )
 
+
+    def save_market_snapshot(self, analysis: Dict[str, Any]) -> int:
+        """保存一次 A股行情快照，含溯源字段(source/fetched_at/data_complete)。
+        返回记录 ID；analysis 为 None 或空时不存储。"""
+        if not analysis:
+            return 0
+
+        def _j(v):
+            try:
+                return json.dumps(v, ensure_ascii=False)
+            except Exception:
+                return "[]"
+
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                INSERT INTO stock_market_snapshot
+                (trade_date, source, fetched_at, data_complete,
+                 indices, breadth, north_flow, sectors, indicators, news)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                analysis.get("date"),
+                analysis.get("source"),
+                analysis.get("fetched_at"),
+                int(bool(analysis.get("data_complete"))),
+                _j(analysis.get("indices")),
+                _j(analysis.get("breadth")),
+                _j(analysis.get("north_flow")),
+                _j(analysis.get("sectors")),
+                _j(analysis.get("indicators")),
+                _j(analysis.get("news")),
+            ))
+            conn.commit()
+            return cursor.lastrowid
 
 # 单例模式
 db = ChemDatabase()

@@ -144,7 +144,13 @@ def generate_market_report(analysis_data):
     s.append(itbl)
 
     # Footer
-    s.append("<div class=footer><p>化工资讯机器人自动生成 | 数据来源: 东方财富 | 仅供参考，不构成投资建议<p><p>" + now.strftime("%Y-%m-%d %H:%M:%S") + "</p></div>")
+    # Footer with honest data provenance (phase-1)
+    src = analysis_data.get("source") or "东方财富"
+    if analysis_data.get("data_complete", True):
+        provenance = "数据来源: " + src
+    else:
+        provenance = "数据来源: " + src + "（部分数据获取失败，以下内容仅供参考）"
+    s.append("<div class=footer><p>化工资讯机器人自动生成 | " + provenance + " | 仅供参考，不构成投资建议</p><p>" + now.strftime("%Y-%m-%d %H:%M:%S") + "</p></div>")
     s.append("</div>")
     return "\n".join(s)
 

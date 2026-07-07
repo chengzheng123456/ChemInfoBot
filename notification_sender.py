@@ -124,6 +124,8 @@ def send_market_notification(analysis_data):
 
     # ===== Build shared content lines =====
     content_lines = []
+    if not analysis_data.get("data_complete", True):
+        content_lines.append("⚠️ 部分市场数据获取失败，以下内容仅供参考")
     content_lines.append("**📈 主要指数**")
     if indices:
         for idx in indices[:4]:
