@@ -56,7 +56,9 @@ class CircuitBreaker:
 
 class AStockSpider:
     name = "A股板块爬虫"
-    base_url = "https://data.eastmoney.com"
+    # 注意：东方财富已将 clist 行情接口从 data.eastmoney.com 迁移到
+    # push2.eastmoney.com 前缀（旧前缀返回 404）。阶段三实测发现并修复。
+    base_url = "https://push2.eastmoney.com"
 
     def __init__(self):
         self.session = requests.Session()
@@ -92,7 +94,13 @@ class AStockSpider:
     # Index overview: eastmoney primary, tencent fallback
     # ------------------------------------------------------------------
     def fetch_market_overview(self):
-        """获取主要指数行情；东方财富失败则降级腾讯，再失败返回 None。"""
+        """获取主要指数行情；腾讯直连优先（实测稳定），东方财富兜底，再失败返回 None。"""
+        # 阶段三实测：东方财富 ulist.np 接口偶发限流断开，腾讯 qt.gtimg.cn 稳定可用，
+        # 故改为腾讯优先、东方财富兜底。
+        tx = self._fetch_tencent_indices()
+        if tx:
+            return tx[:8]
+        logger.info("Tencent indices failed, degrading to eastmoney")
         codes = ",".join(INDEX_CODES.keys())
         p = {
             "fltt": 2, "invt": 2,
@@ -102,8 +110,7 @@ class AStockSpider:
         h = self._fetch("https://push2.eastmoney.com/api/qt/ulist.np/get",
                         params=p, breaker=self.breaker_em)
         if not h:
-            logger.info("Eastmoney indices failed, degrading to tencent")
-            return self._fetch_tencent_indices()
+            return None
         try:
             data = json.loads(h).get("data", {}).get("diff", [])
             indices = []
@@ -141,26 +148,37 @@ class AStockSpider:
                 if not val:
                     continue
                 parts = val.split("~")
-                if len(parts) < 10:
+                if len(parts) < 6:
                     continue
                 try:
+                    name = parts[1]
+                    code = parts[2]
                     price = float(parts[3])
-                    chg_pct = float(parts[5])
-                    chg_val = float(parts[4])
+                    # 腾讯行情格式尾部结构（指数/个股一致）：
+                    #   ...~时间~涨跌额~涨跌幅~最高~最低~收盘/量/额~
+                    # 用末尾字段更稳健，避免中途字段数差异导致错位。
+                    # 腾讯行情格式尾部结构（指数/个股一致）：
+                    #   ...~时间~涨跌额~涨跌幅~最高~最低~收盘/量/额~
+                    # 用末尾字段更稳健，避免中途字段数差异导致错位。
+                    chg_val = float(parts[-6])
+                    chg_pct = float(parts[-5])
+                    high = float(parts[-4])
+                    low = float(parts[-3])
+                    open_ = float(parts[5])
                 except (ValueError, IndexError):
                     continue
                 # sanity check: reject obviously garbage values
                 if price <= 0 or not (-15 <= chg_pct <= 15):
                     continue
                 out.append({
-                    "name": parts[1],
-                    "code": parts[2],
+                    "name": name,
+                    "code": code,
                     "price": price,
                     "chg_pct": chg_pct,
                     "chg_val": chg_val,
-                    "high": float(parts[8]) if parts[8] else 0,
-                    "low": float(parts[9]) if parts[9] else 0,
-                    "open": float(parts[6]) if parts[6] else 0,
+                    "high": high,
+                    "low": low,
+                    "open": open_,
                     "volume": 0,
                 })
             return out if out else None
