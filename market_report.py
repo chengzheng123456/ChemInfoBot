@@ -155,6 +155,55 @@ def generate_market_report(analysis_data):
     return "\n".join(s)
 
 
+def generate_llm_report(analysis_data, llm_result):
+    """在真实数据报告之上叠加 AI 研判卡（决策徽章/评分/置信度/风险/催化/免责）。"""
+    if not analysis_data or not llm_result:
+        return generate_market_report(analysis_data)
+    base = generate_market_report(analysis_data)
+    r = llm_result
+    decision = r.get("decision", "观望")
+    dcolor = {"买入": "#d32f2f", "持有": "#1565c0", "观望": "#ff9800",
+              "卖出": "#388e3c"}.get(decision, "#607d8b")
+    arrow = {"买入": "🟢", "持有": "🔵", "观望": "🟡", "卖出": "🔴"}.get(decision, "⚪")
+    score = r.get("score", "-")
+    try:
+        conf = float(r.get("confidence", 0))
+    except (TypeError, ValueError):
+        conf = 0.0
+    summary = r.get("summary", "")
+    detail = r.get("detail", "")
+    risks = r.get("risks") or []
+    cats = r.get("catalysts") or []
+    guard = r.get("guardrail_note", "")
+
+    card = "<div class=card style='border-left:5px solid %s'>" % dcolor
+    card += "<div class=card-title>🤖 AI 盘前研判（DeepSeek）</div>"
+    card += "<div style='display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin:6px 0'>"
+    card += "<div style='font-size:28px;font-weight:800;color:%s'>%s %s</div>" % (dcolor, arrow, decision)
+    card += "<div style='font-size:13px;color:#555'>综合研判分 <b>%s</b>/100 ｜ 置信度 <b>%.0f%%</b></div>" % (score, conf * 100)
+    card += "</div>"
+    if summary:
+        card += "<p style='margin:6px 0;font-size:15px;font-weight:600'>%s</p>" % summary
+    if detail:
+        card += "<p style='margin:4px 0;color:#444;font-size:13px'>%s</p>" % detail
+    if risks:
+        card += "<div style='margin-top:8px'><b style='color:#d32f2f'>⚠️ 风险点</b><ul style='margin:4px 0;padding-left:18px;font-size:13px'>"
+        for x in risks[:3]:
+            card += "<li>%s</li>" % x
+        card += "</ul></div>"
+    if cats:
+        card += "<div style='margin-top:6px'><b style='color:#2e7d32'>🚀 催化/利好</b><ul style='margin:4px 0;padding-left:18px;font-size:13px'>"
+        for x in cats[:3]:
+            card += "<li>%s</li>" % x
+        card += "</ul></div>"
+    if guard:
+        card += "<p style='margin-top:8px;font-size:12px;color:#ef6c00'>🛡️ 护栏提示：%s</p>" % guard
+    card += "<p style='margin-top:8px;font-size:11px;color:#999'>%s</p>" % r.get("disclaimer", "AI 仅供参考，不构成投资建议")
+    card += "</div>"
+
+    return base.replace("<div class=header>", card + "\n<div class=header>", 1)
+
+
 def generate_compact_report(analysis_data):
     if not analysis_data:
         return "No data"

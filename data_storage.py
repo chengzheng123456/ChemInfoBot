@@ -134,7 +134,7 @@ class ChemDatabase:
                 )
             """)
 
-            # A股行情快照（阶段一新增，带溯源字段）
+            # A股行情快照（阶段一新增，带溯源字段；阶段二加 llm_* 结论字段）
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS stock_market_snapshot (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,9 +148,19 @@ class ChemDatabase:
                     sectors TEXT,
                     indicators TEXT,
                     news TEXT,
+                    llm_decision TEXT,
+                    llm_score INTEGER,
+                    llm_confidence REAL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # 阶段二迁移：为旧快照表补加 LLM 结论列（幂等，列已存在则跳过）
+            for _col, _ctype in (("llm_decision", "TEXT"), ("llm_score", "INTEGER"), ("llm_confidence", "REAL")):
+                try:
+                    conn.execute("ALTER TABLE stock_market_snapshot ADD COLUMN %s %s" % (_col, _ctype))
+                except sqlite3.OperationalError:
+                    pass  # 列已存在
 
             conn.commit()
     
@@ -415,8 +425,9 @@ class ChemDatabase:
         )
 
 
-    def save_market_snapshot(self, analysis: Dict[str, Any]) -> int:
-        """保存一次 A股行情快照，含溯源字段(source/fetched_at/data_complete)。
+    def save_market_snapshot(self, analysis: Dict[str, Any], llm_result: Optional[Dict] = None) -> int:
+        """保存一次 A股行情快照，含溯源字段(source/fetched_at/data_complete)；
+        可选存 LLM 研判结论(llm_decision/llm_score/llm_confidence)。
         返回记录 ID；analysis 为 None 或空时不存储。"""
         if not analysis:
             return 0
@@ -427,12 +438,24 @@ class ChemDatabase:
             except Exception:
                 return "[]"
 
+        lr = llm_result or {}
+        llm_decision = lr.get("decision")
+        try:
+            llm_score = int(lr.get("score", 0))
+        except (TypeError, ValueError):
+            llm_score = 0
+        try:
+            llm_confidence = float(lr.get("confidence", 0))
+        except (TypeError, ValueError):
+            llm_confidence = 0.0
+
         with self._get_connection() as conn:
             cursor = conn.execute("""
                 INSERT INTO stock_market_snapshot
                 (trade_date, source, fetched_at, data_complete,
-                 indices, breadth, north_flow, sectors, indicators, news)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 indices, breadth, north_flow, sectors, indicators, news,
+                 llm_decision, llm_score, llm_confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 analysis.get("date"),
                 analysis.get("source"),
@@ -444,6 +467,9 @@ class ChemDatabase:
                 _j(analysis.get("sectors")),
                 _j(analysis.get("indicators")),
                 _j(analysis.get("news")),
+                llm_decision,
+                llm_score,
+                llm_confidence,
             ))
             conn.commit()
             return cursor.lastrowid

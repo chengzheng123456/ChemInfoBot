@@ -45,6 +45,11 @@ WECHAT_CONFIG = {
     "serverchan_key": "YOUR_SERVERCHAN_KEY",
 }
 
+DEEPSEEK_API_KEY = "YOUR_DEEPSEEK_API_KEY"
+DEEPSEEK_MODEL = "deepseek-chat"          # 主模型：日常分析
+DEEPSEEK_VERIFY_MODEL = ""                # 可选复核模型，如 "deepseek-reasoner"；留空则不复核
+PUSHPLUS_TEMPLATE = "markdown"            # 微信侧推送形态：markdown 文字报告（非图片）
+
 DATA_SOURCES = {
     "chemnet": {
         "name": "中国化工网",
