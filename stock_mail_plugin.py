@@ -11,6 +11,7 @@ from email.mime.multipart import MIMEMultipart
 from email.header import Header
 from email_sender import email_sender, db
 from a_stock_spider import AStockSpider, MarketNewsSpider
+from world_news_spider import WorldNewsSpider
 from notification_sender import feishu_notifier, wechat_notifier, send_market_notification
 from market_report import generate_market_report, generate_compact_report, generate_llm_report, REPORT_CSS
 logger = logging.getLogger(__name__)
@@ -66,6 +67,8 @@ def send_enhanced():
         spider = AStockSpider()
         s = spider.fetch_sector_rankings(3)
         m = MarketNewsSpider().fetch_news()
+        w = WorldNewsSpider().fetch_news()
+        news_all = (m or []) + (w or [])
         try:
             analysis = spider.fetch_previous_trading_day_analysis()
         except Exception as e:
@@ -78,6 +81,10 @@ def send_enhanced():
     if not items and not s and not analysis:
         logger.info("No data")
         return False
+
+    # 把国内外要闻并入分析数据，让 AI 研判覆盖国际面
+    if analysis:
+        analysis["news"] = news_all
 
     # 阶段二：LLM 研判（失败回退规则报告）
     llm_result = _run_llm_analysis(analysis) if analysis else None
@@ -106,10 +113,10 @@ def send_enhanced():
             html_parts.append("<tr><td>" + str(x.get("rank", "")) + "</td><td style=font-weight:bold>" + x.get("sector", "") + "</td><td style=color:" + clr + ";font-weight:bold>" + ("%.2f%%" % x.get("chg", 0)) + "</td><td>" + ld + "</td></tr>")
         html_parts.append("</table></div>")
 
-    # Market news
-    if m:
-        html_parts.append("<div class=card><div class=card-title>市场要闻</div>")
-        for n in m[:8]:
+    # Market news (国内 + 国际)
+    if news_all:
+        html_parts.append("<div class=card><div class=card-title>市场要闻（国内 + 国际）</div>")
+        for n in news_all[:10]:
             html_parts.append("<div style=padding:5px 0;border-bottom:1px solid #eee><a href=" + n.get("url", "#") + " style=color:#1a237e;text-decoration:none>" + n.get("title", "") + "</a><br/><small>" + n.get("source", "") + " | " + n.get("impact", "") + "</small></div>")
         html_parts.append("</div>")
 

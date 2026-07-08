@@ -50,6 +50,15 @@ DEEPSEEK_MODEL = "deepseek-chat"          # 主模型：日常分析
 DEEPSEEK_VERIFY_MODEL = ""                # 可选复核模型，如 "deepseek-reasoner"；留空则不复核
 PUSHPLUS_TEMPLATE = "markdown"            # 微信侧推送形态：markdown 文字报告（非图片）
 
+# ===== 国际财经 RSS（甲方案，零注册零 key）=====
+# 默认开启；代码内置 BBC/CNBC/MarketWatch/AP/Economist 等公开源。
+# 想关掉或自定义源，把下面这段复制到 config.py 并修改即可（代码已对此段做兜底，不加也能跑）。
+WORLD_NEWS_CONFIG = {
+    "enabled": True,          # 是否抓取国际财经要闻
+    "max_items": 10,          # 每日并入报告的条数上限
+    "sources": [],            # 留空则用内置默认源；或填 [{"name": "...", "url": "..."}, ...]
+}
+
 DATA_SOURCES = {
     "chemnet": {
         "name": "中国化工网",
