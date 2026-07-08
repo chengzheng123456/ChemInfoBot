@@ -167,12 +167,12 @@ def send_market_notification(analysis_data, llm_result=None):
     date_str = now.strftime("%m月%d日")
     title = "📊 A股 AI 早报 - " + date_str
 
-    indices = analysis_data.get("indices", [])
-    breadth = analysis_data.get("breadth", {})
-    north = analysis_data.get("north_flow", {})
-    sectors = analysis_data.get("sectors", [])
-    inds = analysis_data.get("indicators", [])
-    news = analysis_data.get("news", [])
+    indices = analysis_data.get("indices") or []
+    breadth = analysis_data.get("breadth") or {}
+    north = analysis_data.get("north_flow") or {}
+    sectors = analysis_data.get("sectors") or []
+    inds = analysis_data.get("indicators") or []
+    news = analysis_data.get("news") or []
     up = breadth.get("up", 0)
     dn = breadth.get("down", 0)
     total = breadth.get("total", 0)
@@ -261,7 +261,11 @@ def send_market_notification(analysis_data, llm_result=None):
         w_ok = wechat_notifier.send(title, wc, "markdown")
     else:
         # 回退：原 HTML 报告
-        wc = "<h3>📊 A股市场早报 - " + date_str + "</h3>"
+        if not analysis_data.get("data_complete", True):
+            wc = "<p>⚠️ 部分市场数据获取失败，AI 研判暂不可用，以下内容仅供参考。</p>"
+        else:
+            wc = ""
+        wc += "<h3>📊 A股市场早报 - " + date_str + "</h3>"
         wc += "<h4>📈 主要指数</h4><table>"
         if indices:
             for idx in indices[:4]:

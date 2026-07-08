@@ -13,13 +13,24 @@ def generate_market_report(analysis_data):
     s = []
     s.append("<div class=container>")
     s.append("<div class=header><h1>A股市场早报</h1><p>" + d + "</p></div>")
-    idx = analysis_data.get("indices", [])
-    brd = analysis_data.get("breadth", {})
-    nf = analysis_data.get("north_flow", {})
-    tot = brd.get("total", 0)
+    idx = analysis_data.get("indices") or []
+    brd = analysis_data.get("breadth") or {}
+    nf = analysis_data.get("north_flow") or {}
     up = brd.get("up", 0)
     dn = brd.get("down", 0)
-    sum_html = "<div class=card><div class=card-title>市场概览</div>"
+    fl = brd.get("flat", 0)
+    tb = up + dn + fl  # 数据缺失时=0，确保下方 up_ratio 计算不崩溃
+    tot = brd.get("total", 0)
+    _all_missing = (not idx and not brd and not analysis_data.get("sectors")
+                    and not analysis_data.get("indicators"))
+    if _all_missing:
+        sum_html = ("<div class=card style='border-left:5px solid #ef6c00'>"
+                    "<div class=card-title>⚠️ 数据获取失败提示</div>"
+                    "<p style='color:#ef6c00'>今日行情数据源（东方财富/腾讯）均返回失败"
+                    "（限流或网络异常），系统已进入诚实降级模式：<b>不编造任何指数或涨跌数据</b>。"
+                    "以下仅展示 AI 基于有限信息的研判，仅供参考，不构成投资建议。</p>")
+    else:
+        sum_html = "<div class=card><div class=card-title>市场概览</div>"
     if idx:
         sh = idx[0] if idx else {}
         sc = sh.get("chg_pct", 0)
@@ -81,7 +92,7 @@ def generate_market_report(analysis_data):
         gl += "</div></div>"
         s.append(gl)
     # Sector analysis
-    secs = analysis_data.get("sectors", [])
+    secs = analysis_data.get("sectors") or []
     if secs:
         sh = "<div class=card><div class=card-title>行业板块涨幅TOP5</div><table><tr><th>排名</th><th>板块</th><th>涨幅</th><th>领涨个股</th></tr>"
         for i, si in enumerate(secs[:5]):
@@ -118,7 +129,7 @@ def generate_market_report(analysis_data):
 
     # 
     # Technical indicators
-    inds = analysis_data.get("indicators", [])
+    inds = analysis_data.get("indicators") or []
     if inds:
         itbl = "<div class=card><div class=card-title>指标图谱 (MACD/KDJ/RSI)</div><table><tr><th>指数</th><th>MACD(DIF/DEA)</th><th>信号</th><th>KDJ(K/D/J)</th><th>信号</th><th>RSI(6/12/24)</th><th>信号</th></tr>"
         for ind in inds:
@@ -207,8 +218,8 @@ def generate_llm_report(analysis_data, llm_result):
 def generate_compact_report(analysis_data):
     if not analysis_data:
         return "No data"
-    idx = analysis_data.get("indices", [])
-    brd = analysis_data.get("breadth", {})
+    idx = analysis_data.get("indices") or []
+    brd = analysis_data.get("breadth") or {}
     lines = []
     if idx:
         for x in idx[:4]:
