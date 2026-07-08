@@ -1,7 +1,9 @@
 # Stock market email plugin - Enhanced with comprehensive A-share analysis
 # 阶段二：接入 DeepSeek 分析层（analyzer），邮件走 LLM 研判报告；
 #         推送彻底去 Codex（本模块自行编排，调用 notification_sender）。
+import json
 import logging
+import os
 from datetime import datetime, timedelta
 import config
 from email.mime.text import MIMEText
@@ -12,6 +14,33 @@ from a_stock_spider import AStockSpider, MarketNewsSpider
 from notification_sender import feishu_notifier, wechat_notifier, send_market_notification
 from market_report import generate_market_report, generate_compact_report, generate_llm_report, REPORT_CSS
 logger = logging.getLogger(__name__)
+
+
+def _today_cache_path(d):
+    """当日完成标记文件路径：data/done_YYYYMMDD.json"""
+    base = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, "done_%s.json" % d.strftime("%Y%m%d"))
+
+
+def _today_already_done(d):
+    """今日是否已成功生成过完整报告（数据齐全）。是则跳过重复运行。"""
+    p = _today_cache_path(d)
+    if not os.path.exists(p):
+        return False
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f).get("status") == "complete"
+    except Exception:
+        return False
+
+
+def _mark_today_done(d):
+    try:
+        with open(_today_cache_path(d), "w", encoding="utf-8") as f:
+            json.dump({"status": "complete", "ts": d.isoformat()}, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 
 def _run_llm_analysis(analysis):
@@ -25,6 +54,13 @@ def _run_llm_analysis(analysis):
 
 
 def send_enhanced():
+    now = datetime.now()
+    # 同交易日去重：今日已成功生成完整报告(数据齐全)则跳过，
+    # 避免任务计划 + 手动重复触发导致的重复抓取与重复推送（也减少被限流概率）。
+    # 限流日 data_complete=False 不会写标记，允许后续补抓完整版。
+    if _today_already_done(now):
+        logger.info("今日(%s)已成功生成完整报告，跳过重复运行。", now.strftime("%Y-%m-%d"))
+        return True
     logger.info("Starting enhanced email with comprehensive A-share analysis")
     try:
         spider = AStockSpider()
@@ -46,7 +82,6 @@ def send_enhanced():
     # 阶段二：LLM 研判（失败回退规则报告）
     llm_result = _run_llm_analysis(analysis) if analysis else None
 
-    now = datetime.now()
     sub = "化资金讯日报 - " + now.strftime("%m月%d日")
 
     html_parts = []
@@ -92,7 +127,6 @@ def send_enhanced():
 
     # Save report HTML to disk for reference
     try:
-        import os
         report_dir = os.path.join(os.path.dirname(__file__), "data")
         os.makedirs(report_dir, exist_ok=True)
         report_path = os.path.join(report_dir, "market_report_{}.html".format(now.strftime("%Y%m%d")))
@@ -144,6 +178,11 @@ def send_enhanced():
             logger.info("Multi-channel push: %s" % result)
         except Exception as e:
             logger.error("Push failed: %s" % e)
+
+    # 仅当数据齐全且邮件成功推送才标记今日完成；
+    # 限流日(数据缺失)或推送失败则不标记，允许后续补抓/重推，避免重复打东方财富。
+    if analysis and analysis.get("data_complete") and email_ok:
+        _mark_today_done(now)
 
     return email_ok
 

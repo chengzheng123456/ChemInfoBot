@@ -6,7 +6,7 @@
 #     for index quotes, with a circuit breaker to avoid hammering a dead source.
 #   * Added data-provenance metadata on the aggregated analysis
 #     (source / fetched_at / data_complete) for traceability & storage.
-import re, time, json, logging
+import re, time, json, logging, random
 from datetime import datetime, timedelta
 import requests
 import config
@@ -74,9 +74,10 @@ class AStockSpider:
         if breaker is not None and not breaker.allow():
             logger.warning("Circuit breaker blocked request to %s", url)
             return None
-        for i in range(3):
+        for i in range(2):
             try:
-                time.sleep(1)
+                # 随机抖动，避免固定节奏被识别为爬虫；同时限流时更快放弃重试
+                time.sleep(random.uniform(0.4, 1.5))
                 r = self.session.get(url, timeout=30, **kw)
                 r.raise_for_status()
                 r.encoding = r.apparent_encoding or "utf-8"
@@ -429,11 +430,11 @@ class AStockSpider:
             return None
 
     def fetch_index_indicators(self):
+        # 字段精简：仅取最具代表性的两个核心指数，降低对东方财富 K 线接口的请求量
+        # （原抓 4 个指数各 60 天 K 线 = 4 次请求；现砍半，限流风险同步下降）
         idx_map = {
             "1.000001": "上证指数",
-            "0.399001": "深证成指",
             "0.399006": "创业板指",
-            "1.000688": "科创50",
         }
         results = []
         for secid, name in idx_map.items():
@@ -463,9 +464,9 @@ class MarketNewsSpider:
     name = "市场要闻 - A股影响"
 
     def _fetch(self, url, **kw):
-        for i in range(3):
+        for i in range(2):
             try:
-                time.sleep(1)
+                time.sleep(random.uniform(0.3, 1.0))
                 r = requests.get(url, timeout=30, **kw)
                 r.raise_for_status()
                 r.encoding = r.apparent_encoding or "utf-8"
