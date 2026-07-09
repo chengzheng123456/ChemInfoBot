@@ -86,10 +86,10 @@ class AStockSpider:
                 return r.text
             except Exception as e:
                 logger.warning("Fetch failed (%s): %s", url, e)
-                if i == 2:
-                    if breaker is not None:
-                        breaker.record_failure()
-                    return None
+        # 所有重试均失败：记录失败（驱动熔断），返回 None
+        if breaker is not None:
+            breaker.record_failure()
+        return None
 
     # ------------------------------------------------------------------
     # Index overview: eastmoney primary, tencent fallback
@@ -139,6 +139,7 @@ class AStockSpider:
         if not h:
             return None
         try:
+            import re
             out = []
             for line in h.split(";"):
                 line = line.strip()
@@ -155,21 +156,28 @@ class AStockSpider:
                     name = parts[1]
                     code = parts[2]
                     price = float(parts[3])
-                    # 腾讯行情格式尾部结构（指数/个股一致）：
-                    #   ...~时间~涨跌额~涨跌幅~最高~最低~收盘/量/额~
-                    # 用末尾字段更稳健，避免中途字段数差异导致错位。
-                    # 腾讯行情格式尾部结构（指数/个股一致）：
-                    #   ...~时间~涨跌额~涨跌幅~最高~最低~收盘/量/额~
-                    # 用末尾字段更稳健，避免中途字段数差异导致错位。
-                    chg_val = float(parts[-6])
-                    chg_pct = float(parts[-5])
-                    high = float(parts[-4])
-                    low = float(parts[-3])
+                    # 腾讯行情格式字段数随品种变化（指数 88 字段、个股约 83 字段），
+                    # 但都含一个 14 位纯数字时间戳字段(YYYYMMDDHHMMSS)，其后依次
+                    # 为 涨跌额/涨跌幅/最高/最低。以时间戳为锚点定位，跨品种稳健，
+                    # 不依赖脆弱的尾部偏移（旧实现用 parts[-6]~-[-3] 在指数格式下
+                    # 取到 'CNY' 等非法值导致 float() 崩溃、整条被跳过）。
+                    ts_idx = None
+                    for i, p in enumerate(parts):
+                        if re.fullmatch(r"\d{14}", p or ""):
+                            ts_idx = i
+                            break
+                    if ts_idx is None or ts_idx + 4 >= len(parts):
+                        continue
+                    chg_val = float(parts[ts_idx + 1])
+                    chg_pct = float(parts[ts_idx + 2])
+                    high = float(parts[ts_idx + 3])
+                    low = float(parts[ts_idx + 4])
                     open_ = float(parts[5])
                 except (ValueError, IndexError):
                     continue
                 # sanity check: reject obviously garbage values
-                if price <= 0 or not (-15 <= chg_pct <= 15):
+                # (创业板/科创板涨跌停 20%，故阈值放宽到 ±25)
+                if price <= 0 or not (-25 <= chg_pct <= 25):
                     continue
                 out.append({
                     "name": name,
