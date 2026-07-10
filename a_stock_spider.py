@@ -6,7 +6,7 @@
 #     for index quotes, with a circuit breaker to avoid hammering a dead source.
 #   * Added data-provenance metadata on the aggregated analysis
 #     (source / fetched_at / data_complete) for traceability & storage.
-import re, time, json, logging, random
+import re, time, json, logging, random, subprocess, os
 from datetime import datetime, timedelta
 import requests
 import config
@@ -25,6 +25,12 @@ INDEX_CODES = {
 
 PRIMARY_SOURCE = "eastmoney"
 FALLBACK_SOURCE = "tencent"
+
+# 北向资金：沪深港交易所自 2024-08-19 起不再披露实时净买入额。
+# 任何数据源（API 或网页）都无可靠实时数据，故本栏诚实标注而非编造。
+NORTH_FLOW_DISCONTINUED = True
+NORTH_FLOW_NOTE = ("沪深港交易所自2024-08-19起不再披露实时北向资金净买入额；"
+                   "本栏接口返回的可能为收盘后日终口径或滞后数据，仅供参考，不构成实时信号。")
 
 
 class CircuitBreaker:
@@ -225,10 +231,69 @@ class AStockSpider:
             return None
 
     # ------------------------------------------------------------------
-    # Market breadth (eastmoney only; failure -> None, never fake)
+    # Market breadth (multi-source; failure -> None, never fake)
+    #   L1: 腾讯自选股 via westock-data CLI (independent of eastmoney)
+    #   L2: eastmoney push2 -> push2delay fallback
+    #   L3: browser render (Playwright, optional)
     # ------------------------------------------------------------------
+    def fetch_market_breadth_tencent_skill(self):
+        """涨跌分布主源：调用本机 westock-data CLI（腾讯自选股接口）。
+        独立于东方财富，从根上避免东方财富单源被限流时涨跌分布整块缺失。
+        CLI 未配置/不可用/返回空时返回 None，交由东方财富兜底。
+        """
+        cli = getattr(config, "WESTOCK_CLI", "") or ""
+        node = getattr(config, "NODE_BIN", "") or ""
+        if not cli or not os.path.exists(cli):
+            logger.info("WESTOCK_CLI not configured/unavailable; skip tencent breadth")
+            return None
+        if not node or not os.path.exists(node):
+            node = "node"  # 退而求其次：依赖系统 PATH 中的 node
+        try:
+            out = subprocess.run([node, cli, "changedist"],
+                                 capture_output=True, text=True, timeout=60)
+            if out.returncode != 0:
+                logger.warning("westock-data changedist rc=%s: %s",
+                               out.returncode, out.stderr[:200])
+                return None
+            return self._parse_changedist_markdown(out.stdout)
+        except Exception as e:
+            logger.warning("westock-data breadth call failed: %s", e)
+            return None
+
+    def _parse_changedist_markdown(self, txt):
+        """解析 westock-data changedist 的 Markdown 概览表，返回 breadth dict。
+        解析不到或全 0（盘前预热）返回 None（诚实缺失）。"""
+        if not txt:
+            return None
+        m = re.search(
+            r"\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|"
+            r"\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)%", txt)
+        if not m:
+            return None
+        up, down, flat, ul, dl, _susp, _ratio = (int(x) for x in m.groups())
+        if up == 0 and down == 0 and flat == 0:
+            return None
+        return {
+            "total": up + down + flat,
+            "up": up, "down": down, "flat": flat,
+            "up_limit": ul, "down_limit": dl,
+            "top_gainers": [], "top_losers": [],
+            "source": "tencent-westock",
+        }
+
     def fetch_market_breadth(self):
-        """获取市场涨跌统计；失败返回 None。"""
+        """获取市场涨跌统计；失败返回 None（绝不编造）。
+
+        三层兜底：腾讯自选股(westock-data CLI, 独立源) -> 东方财富 push2/push2delay
+        -> 浏览器渲染抓取。腾讯源独立于东方财富，从根上避免东方财富单源被限流
+        时涨跌分布整块缺失。浏览器兜底仅在双源均失败（或主源截断失真）时启用；
+        未安装 Playwright 时优雅跳过，退化为诚实缺失。
+        """
+        # 第一层：腾讯自选股（独立于东方财富）
+        b = self.fetch_market_breadth_tencent_skill()
+        if b:
+            return b
+        # 第二层：东方财富同源降级（主源被限流时自动走 push2delay）
         p = {
             "pn": 1, "pz": 10000, "po": 1, "np": 1,
             "ut": "bd1d9ddb04089700cf9c27f6f7426281",
@@ -236,17 +301,18 @@ class AStockSpider:
             "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
             "fields": "f2,f3,f12,f14",
         }
-        h = self._fetch(self.base_url + "/api/qt/clist/get", params=p,
+        h = self._fetch_with_fallback("/api/qt/clist/get", params=p,
                         breaker=self.breaker_em)
         if not h:
-            return None
+            return self.fetch_market_breadth_browser()
         items = self._parse_html(h)
         if not items:
-            return None
-        # 防御：若个股样本远小于全市场（如限流源截断为百余条），统计失真，诚实缺失
+            return self.fetch_market_breadth_browser()
+        # 防御：若个股样本远小于全市场（如限流源截断为百余条），统计失真，
+        # 不采用该失真样本，改走浏览器兜底；浏览器亦失败时诚实缺失。
         if len(items) < 1000:
-            logger.warning("Breadth sample too small (%d), treat as incomplete", len(items))
-            return None
+            logger.warning("Breadth sample too small (%d), try browser fallback", len(items))
+            return self.fetch_market_breadth_browser()
 
         up_count = sum(1 for i in items if i.get("f3", 0) > 0)
         down_count = sum(1 for i in items if i.get("f3", 0) < 0)
@@ -268,6 +334,60 @@ class AStockSpider:
             "down_limit": down_limit,
             "top_gainers": top_gainers,
             "top_losers": top_losers,
+            "source": "eastmoney-api",
+        }
+
+    # ------------------------------------------------------------------
+    # Browser fallback for breadth (optional; Playwright only)
+    # ------------------------------------------------------------------
+    def fetch_market_breadth_browser(self):
+        """第三重兜底：用 Playwright 无头浏览器抓东方财富行情页的涨跌分布。
+        仅当 API 主源+push2delay 均失败（或主源截断失真）时启用。
+        Playwright 未安装时优雅跳过（返回 None）。
+        注意：浏览器请求仍走同一 IP，若主源因 IP 限流失败，本兜底同样可能
+        失效；它的价值主要是绕开部分接口级反爬，而非解决 IP 频控。
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            logger.info("Playwright not installed; skip browser breadth fallback")
+            return None
+        try:
+            url = "https://quote.eastmoney.com/center/"
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                time.sleep(2)  # 给前端渲染一点时间
+                txt = page.inner_text("body")
+                browser.close()
+            return self._parse_breadth_from_text(txt)
+        except Exception as e:
+            logger.warning("Browser breadth fallback failed: %s", e)
+            return None
+
+    def _parse_breadth_from_text(self, txt):
+        """从行情页文本正则解析涨跌家数；解析不到返回 None（诚实缺失）。"""
+        if not txt:
+            return None
+        m_up = re.search(r"上涨[：:\s]*([\d,]+)\s*家", txt)
+        m_dn = re.search(r"下跌[：:\s]*([\d,]+)\s*家", txt)
+        if not (m_up and m_dn):
+            return None
+        up = int(m_up.group(1).replace(",", ""))
+        dn = int(m_dn.group(1).replace(",", ""))
+        m_flat = re.search(r"平盘[：:\s]*([\d,]+)\s*家", txt)
+        flat = int(m_flat.group(1).replace(",", "")) if m_flat else 0
+        m_ul = re.search(r"涨停[：:\s]*([\d,]+)", txt)
+        m_dl = re.search(r"跌停[：:\s]*([\d,]+)", txt)
+        ul = int(m_ul.group(1).replace(",", "")) if m_ul else 0
+        dl = int(m_dl.group(1).replace(",", "")) if m_dl else 0
+        total = up + dn + flat
+        return {
+            "total": total, "up": up, "down": dn,
+            "flat": flat, "up_limit": ul, "down_limit": dl,
+            "top_gainers": [], "top_losers": [],
+            "source": "eastmoney-web-browser",
         }
 
     # ------------------------------------------------------------------

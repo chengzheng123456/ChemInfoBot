@@ -4,6 +4,11 @@ import a_stock_spider as A
 from a_stock_spider import AStockSpider, MarketNewsSpider, CircuitBreaker
 from data_storage import ChemDatabase
 
+# 离线测试：禁用腾讯自选股(westock-data CLI)主源，仅验证东方财富失败路径
+# （CLI 在本机真实存在，不禁用会让 P0 breadth 拿到真实数据而误判为失败）。
+A.config.WESTOCK_CLI = ""
+
+
 fails = []
 def check(name, cond):
     print(("PASS" if cond else "FAIL"), "-", name)
