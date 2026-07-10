@@ -12,6 +12,7 @@ from email.header import Header
 from email_sender import email_sender, db
 from a_stock_spider import AStockSpider, MarketNewsSpider
 from world_news_spider import WorldNewsSpider
+from neodata_news import NeoDataNews
 from notification_sender import feishu_notifier, wechat_notifier, send_market_notification
 from market_report import generate_market_report, generate_compact_report, generate_llm_report, REPORT_CSS
 logger = logging.getLogger(__name__)
@@ -68,14 +69,15 @@ def send_enhanced():
         s = spider.fetch_sector_rankings(3)
         m = MarketNewsSpider().fetch_news()
         w = WorldNewsSpider().fetch_news()
-        news_all = (m or []) + (w or [])
+        d = NeoDataNews().fetch_domestic_news()
+        news_all = (m or []) + (d or []) + (w or [])
         try:
             analysis = spider.fetch_previous_trading_day_analysis()
         except Exception as e:
             logger.warning("Market analysis fetch failed: %s" % e)
             analysis = None
     except:
-        s, m, analysis = [], [], None
+        s, m, w, d, news_all, analysis = [], [], [], [], [], None
 
     items = db.get_latest_news(hours=24, limit=50)
     if not items and not s and not analysis:

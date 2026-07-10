@@ -58,6 +58,15 @@ PUSHPLUS_TEMPLATE = "markdown"            # 微信侧推送形态：markdown 文
 WESTOCK_CLI = r"D:\Program Files\WorkBuddy\resources\app.asar.unpacked\resources\builtin-skills\westock-data\scripts\index.js"
 NODE_BIN = r"C:\Users\cheng\.workbuddy\binaries\node\versions\22.22.2\node.exe"
 
+# ---------------------------------------------------------------------------
+# 国内 A 股要闻加成层（可选）：复用本机 neodata-financial-search 技能
+# token 由 WorkBuddy IDE 会话签发（connect_cloud_service），有有效期（约24h）。
+# 留空("")则跳过该加成层，bot 推送不含国内 A 股要闻，主流程不受影响。
+# 刷新方式：跟助手说"刷新 neodata token"，助手取新 token 填入 NEODATA_TOKEN。
+# ---------------------------------------------------------------------------
+NEODATA_TOKEN = ""   # tk_xxx 或 Bearer；由助手填入，临时有效
+NEODATA_SKILL_DIR = r"D:\Program Files\WorkBuddy\resources\app.asar.unpacked\resources\builtin-skills\neodata-financial-search\scripts"
+
 # ===== 国际财经 RSS（甲方案，零注册零 key）=====
 # 默认开启；代码内置 BBC/CNBC/MarketWatch/AP/Economist 等公开源。
 # 想关掉或自定义源，把下面这段复制到 config.py 并修改即可（代码已对此段做兜底，不加也能跑）。
