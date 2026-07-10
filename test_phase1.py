@@ -16,6 +16,7 @@ A.MarketNewsSpider._fetch = lambda self, *a, **k: None
 # ---- P0: 无 demo，失败返回 None/[]
 sp = AStockSpider()
 sp._fetch = lambda *a, **k: None
+sp._fetch_with_fallback = lambda *a, **k: None  # 模拟主源+备用源均失败
 check("P0 index -> None on fail", sp.fetch_market_overview() is None)
 check("P0 breadth -> None on fail", sp.fetch_market_breadth() is None)
 check("P0 north -> None on fail", sp.fetch_north_flow() is None)
@@ -26,6 +27,14 @@ check("P0 news -> [] on fail", mn.fetch_news() == [])
 check("P0 _demo_market removed", not hasattr(sp, "_demo_market"))
 check("P0 _demo_news removed", not hasattr(MarketNewsSpider, "_demo_news"))
 check("P0 _demo_breadth removed", not hasattr(sp, "_demo_breadth"))
+
+# ---- P0: 降级验证（主源失败但备用源可用时，应返回真实数据，而非编造/缺失）
+sp_fb = AStockSpider()
+sp_fb._fetch = lambda *a, **k: None
+sp_fb._fetch_with_fallback = lambda *a, **k: '{"data":{"diff":[{"f12":"BK0735","f14":"测试板块","f3":1.23}]}}'
+sec_fb = sp_fb.fetch_sector_rankings(3)
+check("P0 sector -> fallback returns real data on primary fail",
+      sec_fb is not None and sec_fb[0]["sector"] == "测试板块")
 
 # ---- P3: 熔断
 cb = CircuitBreaker(fail_threshold=2, cooldown=1)

@@ -69,6 +69,10 @@ class AStockSpider:
         })
         self.breaker_em = CircuitBreaker()
         self.breaker_tx = CircuitBreaker()
+        # 东方财富备用域名（与主源同套 API、同字段，但限流桶独立）。
+        # 实测 push2 被限流时，push2delay 仍可正常返回，作为自动降级目标。
+        self.backup_hosts = ["https://push2delay.eastmoney.com"]
+        self.breaker_em_bk = CircuitBreaker()
 
     def _fetch(self, url, breaker=None, **kw):
         if breaker is not None and not breaker.allow():
@@ -89,6 +93,31 @@ class AStockSpider:
         # 所有重试均失败：记录失败（驱动熔断），返回 None
         if breaker is not None:
             breaker.record_failure()
+        return None
+
+    def _fetch_with_fallback(self, path, params=None, breaker=None, **kw):
+        """主源(base_url)优先；失败或熔断后，自动降级到 backup_hosts
+        （同套东方财富 API 的不同域名，限流桶独立）。返回文本或 None。
+
+        设计要点：
+        - 主源被 breaker 熔断时直接跳过，不再反复请求，立即走备用源；
+        - 备用源用独立 breaker，避免被主源故障连累；
+        - 全部失败才返回 None（交由上层诚实降级，绝不编造）。
+        """
+        if breaker is None or breaker.allow():
+            h = self._fetch(self.base_url + path, params=params, breaker=breaker, **kw)
+            if h:
+                return h
+        for host in getattr(self, "backup_hosts", []):
+            try:
+                time.sleep(random.uniform(0.3, 1.0))
+                r = self.session.get(host + path, timeout=30, params=params, **kw)
+                r.raise_for_status()
+                r.encoding = r.apparent_encoding or "utf-8"
+                logger.info("Fallback host hit: %s", host)
+                return r.text
+            except Exception as e:
+                logger.warning("Backup host %s failed: %s", host, e)
         return None
 
     # ------------------------------------------------------------------
@@ -214,6 +243,10 @@ class AStockSpider:
         items = self._parse_html(h)
         if not items:
             return None
+        # 防御：若个股样本远小于全市场（如限流源截断为百余条），统计失真，诚实缺失
+        if len(items) < 1000:
+            logger.warning("Breadth sample too small (%d), treat as incomplete", len(items))
+            return None
 
         up_count = sum(1 for i in items if i.get("f3", 0) > 0)
         down_count = sum(1 for i in items if i.get("f3", 0) < 0)
@@ -241,7 +274,12 @@ class AStockSpider:
     # North-bound flow (eastmoney only; failure -> None)
     # ------------------------------------------------------------------
     def fetch_north_flow(self):
-        """获取北向资金流向；失败返回 None。"""
+        """获取北向资金流向；失败返回 None。主源 push2，限流时诚实缺失。
+
+        注：push2delay 对 kamt 接口返回结构不同（hk2sh/sh2hk 数组而非
+        klines），且北向属次要项，为避免解析错字段推送错误资金流向，
+        限流日不做强行降级，保持诚实缺失。
+        """
         try:
             url = "https://push2.eastmoney.com/api/qt/kamt.kline/get"
             p = {
@@ -309,7 +347,8 @@ class AStockSpider:
             "fs": "m:90+t:2",
             "fields": "f2,f3,f4,f12,f14,f15,f16,f17,f18",
         }
-        h = self._fetch(self.base_url + "/api/qt/clist/get", params=p,
+        # 板块列表数量少，push2delay 降级经实测数据真实可用
+        h = self._fetch_with_fallback("/api/qt/clist/get", params=p,
                         breaker=self.breaker_em)
         if not h:
             return None
